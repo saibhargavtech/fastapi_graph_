@@ -420,8 +420,8 @@ import uuid
 import json
 import httpx
 from dotenv import load_dotenv
-# import os
-# load_dotenv()
+import os
+load_dotenv()
 
 app = FastAPI()
 
@@ -509,14 +509,14 @@ async def exchange_code(payload: dict):
         raise HTTPException(status_code=400, detail="Missing authorization code or code verifier")
 
     data = {
-        "client_id": "d73dfe28-c155-42a6-8145-445a0e795a19",
+        "client_id": os.getenv("CLIENT_ID"),
         "scope": "User.Read Mail.Read offline_access",
         "code": code,
-        "redirect_uri": "http://localhost:5173/redirect",
+        "redirect_uri": os.getenv("REDIRECT_URI"),
         "grant_type": "authorization_code",
         
         "code_verifier": code_verifier,
-          "client_secret": "IMG8Q~bKJKrXc14sNl_VSsEF4UTW4ly0LxVM4bgu", 
+        "client_secret": os.getenv("CLIENT_SECRET"),
     }
 
     try:
@@ -594,12 +594,12 @@ async def get_token(user_email: str):
         print("🔁 Access token expired, refreshing...")
 
         data = {
-            "client_id": "d73dfe28-c155-42a6-8145-445a0e795a19",
+            "client_id": os.getenv("CLIENT_ID"),
             "grant_type": "refresh_token",
             "refresh_token": token_data["refresh_token"],
             "scope": "User.Read Mail.Read offline_access",
-            "redirect_uri": "http://localhost:5173/redirect",
-            "client_secret": "IMG8Q~bKJKrXc14sNl_VSsEF4UTW4ly0LxVM4bgu",
+            "redirect_uri": os.getenv("REDIRECT_URI"),
+            "client_secret": os.getenv("CLIENT_SECRET"),
         }
 
         async with httpx.AsyncClient() as client:
