@@ -440,65 +440,9 @@ subscribed_users = {}  # Replace with DB in production
 
 
 user_tokens = {}
-
-# @app.post("/store-token")
-# def store_token(user_email: str, access_token: str, refresh_token: str):
-#     user_tokens[user_email] = {
-#         "access_token": access_token,
-#         "refresh_token": refresh_token,
-#         "expires_at": datetime.utcnow() + timedelta(minutes=60)  # basic TTL
-#     }
-#     return {"status": "stored"}
+user_id_to_email = {}
 
 
-
-# @app.post("/auth/exchange")
-# async def exchange_code(payload: dict):
-#     code = payload.get("code")
-#     if not code:
-#         raise HTTPException(status_code=400, detail="Missing authorization code")
-
-#     data = {
-#         "client_id": "d73dfe28-c155-42a6-8145-445a0e795a19",
-#         "scope": "User.Read Mail.Read offline_access",
-#         "code": code,
-#         "redirect_uri": "http://localhost:5173/redirect",
-#         "grant_type": "authorization_code",
-#         "client_secret": "IMG8Q~bKJKrXc14sNl_VSsEF4UTW4ly0LxVM4bgu",
-#     }
-
-#     async with httpx.AsyncClient() as client:
-#         res = await client.post(
-#             "https://login.microsoftonline.com/08423cbb-15b2-4cc9-a5a6-b7b2701a472b/oauth2/v2.0/token",
-#             data=data
-#         )
-#         res.raise_for_status()
-#         token_data = res.json()
-
-#         access_token = token_data["access_token"]
-#         refresh_token = token_data["refresh_token"]
-#         expires_in = token_data["expires_in"]
-
-#         # ✅ This should stay inside `async with`
-#         profile_res = await client.get(
-#             f"{GRAPH_BASE}/me",
-#             headers={"Authorization": f"Bearer {access_token}"}
-#         )
-#         profile_res.raise_for_status()
-#         user_data = profile_res.json()
-
-#     # Now outside the `async with`
-#     user_email = user_data.get("mail") or user_data.get("userPrincipalName")
-#     if not user_email:
-#         raise HTTPException(status_code=400, detail="Could not extract user email")
-
-#     user_tokens[user_email] = {
-#         "access_token": access_token,
-#         "refresh_token": refresh_token,
-#         "expires_at": datetime.now(timezone.utc) + timedelta(seconds=expires_in),
-#     }
-
-#     return {"message": f"{user_email} authorized"}
 
 @app.post("/auth/exchange")
 async def exchange_code(payload: dict):
@@ -548,8 +492,11 @@ async def exchange_code(payload: dict):
         raise HTTPException(status_code=500, detail="Unexpected error")
 
     user_email = user_data.get("mail") or user_data.get("userPrincipalName")
+    user_id = user_data.get("id")
     if not user_email:
         raise HTTPException(status_code=400, detail="Could not extract user email")
+    if user_id:
+        user_id_to_email[user_id] = user_email
 
     user_tokens[user_email] = {
         "access_token": access_token,
@@ -577,6 +524,55 @@ def debug_user_tokens():
 #     if not token_data:
 #         raise HTTPException(status_code=404, detail="User not authorized")
 #     return {"access_token": token_data["access_token"]}
+
+@app.get("/get-email-and-token")
+async def get_email_and_token(userId: str):
+    user_email = user_id_to_email.get(userId)
+    if not user_email:
+        raise HTTPException(status_code=404, detail="Email not found for userId")
+
+    token_data = user_tokens.get(user_email)
+    if not token_data:
+        raise HTTPException(status_code=404, detail="Token not found for this user")
+
+    now = datetime.now(timezone.utc)
+    if token_data["expires_at"] <= now:
+        print(f"🔁 Token expired for {user_email}, refreshing...")
+
+        data = {
+            "client_id": os.getenv("CLIENT_ID"),
+            "grant_type": "refresh_token",
+            "refresh_token": token_data["refresh_token"],
+            "scope": "User.Read Mail.Read offline_access",
+            "redirect_uri": os.getenv("REDIRECT_URI"),
+            "client_secret": os.getenv("CLIENT_SECRET"),
+        }
+
+        async with httpx.AsyncClient() as client:
+            try:
+                res = await client.post(
+                    "https://login.microsoftonline.com/08423cbb-15b2-4cc9-a5a6-b7b2701a472b/oauth2/v2.0/token",
+                    data=data
+                )
+                res.raise_for_status()
+                refreshed = res.json()
+
+                token_data["access_token"] = refreshed["access_token"]
+                token_data["refresh_token"] = refreshed.get("refresh_token", token_data["refresh_token"])
+                token_data["expires_at"] = now + timedelta(seconds=refreshed["expires_in"])
+
+                print(f"✅ Token refreshed for {user_email}")
+            except Exception as e:
+                print(f"❌ Refresh failed for {user_email}: {str(e)}")
+                raise HTTPException(status_code=500, detail="Failed to refresh token")
+
+    return {
+        "user_email": user_email,
+        "access_token": token_data["access_token"]
+    }
+
+
+
 @app.get("/get-token")
 async def get_token(user_email: str):
 
@@ -714,3 +710,67 @@ async def process_user(authorization: str = Header(...)):
         raise HTTPException(status_code=502, detail="Microsoft Graph error")
 
 
+
+
+
+
+
+
+# @app.post("/store-token")
+# def store_token(user_email: str, access_token: str, refresh_token: str):
+#     user_tokens[user_email] = {
+#         "access_token": access_token,
+#         "refresh_token": refresh_token,
+#         "expires_at": datetime.utcnow() + timedelta(minutes=60)  # basic TTL
+#     }
+#     return {"status": "stored"}
+
+
+
+# @app.post("/auth/exchange")
+# async def exchange_code(payload: dict):
+#     code = payload.get("code")
+#     if not code:
+#         raise HTTPException(status_code=400, detail="Missing authorization code")
+
+#     data = {
+#         "client_id": "d73dfe28-c155-42a6-8145-445a0e795a19",
+#         "scope": "User.Read Mail.Read offline_access",
+#         "code": code,
+#         "redirect_uri": "http://localhost:5173/redirect",
+#         "grant_type": "authorization_code",
+#         "client_secret": "IMG8Q~bKJKrXc14sNl_VSsEF4UTW4ly0LxVM4bgu",
+#     }
+
+#     async with httpx.AsyncClient() as client:
+#         res = await client.post(
+#             "https://login.microsoftonline.com/08423cbb-15b2-4cc9-a5a6-b7b2701a472b/oauth2/v2.0/token",
+#             data=data
+#         )
+#         res.raise_for_status()
+#         token_data = res.json()
+
+#         access_token = token_data["access_token"]
+#         refresh_token = token_data["refresh_token"]
+#         expires_in = token_data["expires_in"]
+
+#         # ✅ This should stay inside `async with`
+#         profile_res = await client.get(
+#             f"{GRAPH_BASE}/me",
+#             headers={"Authorization": f"Bearer {access_token}"}
+#         )
+#         profile_res.raise_for_status()
+#         user_data = profile_res.json()
+
+#     # Now outside the `async with`
+#     user_email = user_data.get("mail") or user_data.get("userPrincipalName")
+#     if not user_email:
+#         raise HTTPException(status_code=400, detail="Could not extract user email")
+
+#     user_tokens[user_email] = {
+#         "access_token": access_token,
+#         "refresh_token": refresh_token,
+#         "expires_at": datetime.now(timezone.utc) + timedelta(seconds=expires_in),
+#     }
+
+#     return {"message": f"{user_email} authorized"}
