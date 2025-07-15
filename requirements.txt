@@ -5,3 +5,6 @@ requests
 httpx
 python-dotenv
 pydantic
+redis
+apscheduler
+contextlib
