@@ -628,7 +628,7 @@ async def subscribe_user_to_emails(token: str, user_email: str):
 
     subscription_payload = {
         "changeType": "created",
-        "notificationUrl": "https://venkatasaibhargav.app.n8n.cloud/webhook/process-new-email",
+        "notificationUrl": "https://budayan.app.n8n.cloud/webhook/process-new-email",
         "resource": "me/mailFolders('Inbox')/messages",
         "expirationDateTime": expiration_time,
         "clientState": client_state
